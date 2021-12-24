@@ -1,14 +1,13 @@
-use std::{collections::HashMap, pin::Pin, time::SystemTime};
-use hyper::{Request, Response, Body};
-use tokio::sync::oneshot::error::RecvError;
-use tokio::sync::{mpsc, broadcast};
-use tokio::sync::oneshot;
-use std::future::Future;
-use tracing::{span, Level, Instrument};
 use crate::{auth::AuthResponse, config::ConfigUpdate, config::FilterSetting};
-use uuid::Uuid;
+use hyper::{Body, Request, Response};
+use std::future::Future;
+use std::{collections::HashMap, pin::Pin, time::SystemTime};
 use thiserror::Error;
-
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::error::RecvError;
+use tokio::sync::{broadcast, mpsc};
+use tracing::{span, Instrument, Level};
+use uuid::Uuid;
 
 #[derive(Error, Debug, Clone)]
 pub enum GatewayError {
@@ -54,16 +53,14 @@ impl From<RecvError> for GatewayError {
     }
 }
 
-
 #[derive(Clone)]
 pub struct MiddlewareHandle {
     pub name: String,
     pub pre: bool,
-    pub post: bool, 
+    pub post: bool,
     pub require_setting: bool,
     pub chan: mpsc::Sender<MiddlewareRequest>,
 }
-
 
 #[derive(Debug)]
 pub struct MwPreRequest {
@@ -73,7 +70,6 @@ pub struct MwPreRequest {
     pub client_filters: Vec<FilterSetting>,
     pub result: oneshot::Sender<Result<MwPreResponse, GatewayError>>,
 }
-
 
 #[derive(Debug)]
 pub struct MwPreResponse {
@@ -96,13 +92,11 @@ pub struct MwPostRequest {
     pub result: oneshot::Sender<Result<MwPostResponse, GatewayError>>,
 }
 
-
 #[derive(Debug)]
 pub struct MwPostResponse {
     pub context: RequestContext,
     pub response: Response<Body>,
 }
-
 
 #[derive(Debug)]
 pub enum MiddlewareRequest {
@@ -110,11 +104,10 @@ pub enum MiddlewareRequest {
     Response(MwPostRequest),
 }
 
-
 pub trait Middleware {
     fn name() -> String;
 
-    // this middleware intercept request 
+    // this middleware intercept request
     fn pre() -> bool {
         true
     }
@@ -130,15 +123,14 @@ pub trait Middleware {
     }
 
     // pre-request handler, result is sent-back through one-shot channel in MwPreRequest
-    fn request(&mut self, task: MwPreRequest) -> Pin<Box<dyn Future<Output=()> + Send>>;
+    fn request(&mut self, task: MwPreRequest) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
     // post-response handler, result is sent-back through one-shot channel in MwPostRequest
-    fn response(&mut self, task: MwPostRequest) -> Pin<Box<dyn Future<Output=()> + Send>>;
+    fn response(&mut self, task: MwPostRequest) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
     // handle config update events
     fn config_update(&mut self, update: ConfigUpdate);
 }
-
 
 #[derive(Debug, Clone)]
 pub struct RequestContext {
@@ -168,14 +160,15 @@ impl RequestContext {
             client_filters: HashMap::new(),
             request_id: req_id,
         };
-        
         // group FilterSettings by Middlewares
         for sf in &auth.service_filters {
             let filter_type = FilterSetting::get_type(&sf);
             if let Some(filters) = context.service_filters.get_mut(&filter_type) {
                 filters.push(sf.clone());
             } else {
-                context.service_filters.insert(filter_type, vec![sf.clone()]);
+                context
+                    .service_filters
+                    .insert(filter_type, vec![sf.clone()]);
             }
         }
         for cf in &auth.client_filters {
@@ -192,12 +185,8 @@ impl RequestContext {
     fn split_path(path: &str) -> (String, String) {
         let path = path.strip_prefix("/").unwrap_or(path);
         let (service_path, api_path) = match path.find("/") {
-            Some(pos) => {
-                path.split_at(pos)
-            },
-            None => {
-                (path, "/")
-            }
+            Some(pos) => path.split_at(pos),
+            None => (path, "/"),
         };
         (format!("/{}", service_path), String::from(api_path))
     }
@@ -212,9 +201,11 @@ impl RequestContext {
     }
 }
 
-
-pub async fn start_middleware<MW>(mut tasks: mpsc::Receiver<MiddlewareRequest>, mut updates: broadcast::Receiver<ConfigUpdate>) 
-where MW: Middleware + Default
+pub async fn start_middleware<MW>(
+    mut tasks: mpsc::Receiver<MiddlewareRequest>,
+    mut updates: broadcast::Receiver<ConfigUpdate>,
+) where
+    MW: Middleware + Default,
 {
     let mut mw = MW::default();
 
@@ -256,18 +247,28 @@ where MW: Middleware + Default
 }
 
 // recursively apply middlewares
-pub fn middleware_chain(req: Request<Body>, context: RequestContext, mut mw_stack: Vec<MiddlewareHandle>)
-        -> Pin<Box<dyn Future<Output=Result<Response<Body>, GatewayError>> + Send>> 
-{
+pub fn middleware_chain(
+    req: Request<Body>,
+    context: RequestContext,
+    mut mw_stack: Vec<MiddlewareHandle>,
+) -> Pin<Box<dyn Future<Output = Result<Response<Body>, GatewayError>> + Send>> {
     let mw = mw_stack.pop();
     if mw.is_none() {
         // middleware stack is empty, and no Response obtained, return error
         return Box::pin(async {
-            Err(GatewayError::GatewayInteralError("Middleware misconfiguration".into()))
-        })
+            Err(GatewayError::GatewayInteralError(
+                "Middleware misconfiguration".into(),
+            ))
+        });
     }
 
-    let MiddlewareHandle {name, chan, pre, post, require_setting} = mw.unwrap();
+    let MiddlewareHandle {
+        name,
+        chan,
+        pre,
+        post,
+        require_setting,
+    } = mw.unwrap();
     // extract middleware settings from context
     let service_filters = {
         if let Some(sfs) = context.service_filters.get(&name) {
@@ -309,7 +310,10 @@ pub fn middleware_chain(req: Request<Body>, context: RequestContext, mut mw_stac
                 let result = rx.await??;
                 Ok(result)
             } else {
-                Ok(MwPreResponse { context, next: MwNextAction::Next(req) })
+                Ok(MwPreResponse {
+                    context,
+                    next: MwNextAction::Next(req),
+                })
             }
         };
 
@@ -332,19 +336,16 @@ pub fn middleware_chain(req: Request<Body>, context: RequestContext, mut mw_stac
                         result: tx,
                     };
                     let _ = chan.send(MiddlewareRequest::Response(post_req)).await;
-                    let resp =rx.await??;
+                    let resp = rx.await??;
                     Ok(resp.response)
                 } else {
                     Ok(inner_resp)
                 }
-            },
-            // if pre-filter returns response, terminate chain and return
-            MwNextAction::Return(response) => {
-                Ok(response)
             }
+            // if pre-filter returns response, terminate chain and return
+            MwNextAction::Return(response) => Ok(response),
         }
     };
 
     Box::pin(fut)
 }
-

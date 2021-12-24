@@ -1,9 +1,8 @@
+use crate::config::{ClientInfo, ConfigUpdate, ServiceInfo};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use crate::config::{ConfigUpdate, ClientInfo, ServiceInfo};
-use serde::{Serialize, Deserialize};
 use tracing::{event, Level};
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct ServiceConfig {
@@ -11,10 +10,12 @@ struct ServiceConfig {
     pub services: Vec<ServiceInfo>,
 }
 
-
 pub async fn watch_config(config_file: String, sender: mpsc::Sender<ConfigUpdate>) {
-    let content = tokio::fs::read_to_string(&config_file).await.expect("Failed to read config file");
-    let mut config = serde_yaml::from_str::<ServiceConfig>(&content).expect("Failed to parse config file");
+    let content = tokio::fs::read_to_string(&config_file)
+        .await
+        .expect("Failed to read config file");
+    let mut config =
+        serde_yaml::from_str::<ServiceConfig>(&content).expect("Failed to parse config file");
     for s in config.services.iter() {
         let _ = sender.send(ConfigUpdate::ServiceUpdate(s.clone())).await;
     }
@@ -42,7 +43,6 @@ pub async fn watch_config(config_file: String, sender: mpsc::Sender<ConfigUpdate
     }
     event!(Level::INFO, "Update channel closed");
 }
-
 
 fn config_diff(old: &ServiceConfig, new: &ServiceConfig) -> Vec<ConfigUpdate> {
     let mut result = Vec::new();
@@ -76,11 +76,10 @@ fn config_diff(old: &ServiceConfig, new: &ServiceConfig) -> Vec<ConfigUpdate> {
     return result;
 }
 
-
 #[cfg(unix)]
 mod reload_signal {
-    use tokio::sync::mpsc;
     use tokio::signal::unix::{signal, SignalKind};
+    use tokio::sync::mpsc;
     use tracing::{event, Level};
 
     pub fn get_channel() -> mpsc::Receiver<()> {
@@ -100,9 +99,8 @@ mod reload_signal {
 mod reload_signal {
     use tokio::sync::mpsc;
 
-    pub fn get_channel() -> mpsc::Receiver<()>  {
+    pub fn get_channel() -> mpsc::Receiver<()> {
         let (_tx, rx) = mpsc::channel(1);
         rx
     }
 }
-

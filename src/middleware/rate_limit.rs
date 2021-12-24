@@ -1,33 +1,32 @@
+use crate::config::{ConfigUpdate, FilterSetting, RateLimitSetting};
+use crate::middleware::{
+    GatewayError, Middleware, MwNextAction, MwPostRequest, MwPreRequest, MwPreResponse,
+};
 use std::collections::HashMap;
-use std::time::{Instant, Duration};
 use std::future::Future;
 use std::pin::Pin;
-use crate::middleware::{Middleware, MwPreRequest, MwPreResponse, MwPostRequest, GatewayError, MwNextAction};
-use crate::config::{ConfigUpdate, FilterSetting, RateLimitSetting};
-
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub struct RateLimitMiddleware {
-    service_limit: HashMap<String, Vec<TokenBucket>>,  // service_limit[service_id] = Vec<TokenBucket>
-    client_limit: HashMap<String, HashMap<String, Vec<TokenBucket>>>,   // client_limit[service_id][client_id] = Vec<TokenBucket>
-    sla: HashMap<String, HashMap<String, Vec<TokenBucket>>>,  // sla[service_id][sla_id] = Vec<RateLimit>
-    client_sla: HashMap<String, HashMap<String, String>>,   // client_sla[client_id][service_id] = sla:String
+    service_limit: HashMap<String, Vec<TokenBucket>>, // service_limit[service_id] = Vec<TokenBucket>
+    client_limit: HashMap<String, HashMap<String, Vec<TokenBucket>>>, // client_limit[service_id][client_id] = Vec<TokenBucket>
+    sla: HashMap<String, HashMap<String, Vec<TokenBucket>>>, // sla[service_id][sla_id] = Vec<RateLimit>
+    client_sla: HashMap<String, HashMap<String, String>>, // client_sla[client_id][service_id] = sla:String
 }
 
 impl Default for RateLimitMiddleware {
     fn default() -> Self {
-        RateLimitMiddleware { 
-            service_limit: HashMap::new(), 
-            client_limit: HashMap::new(), 
+        RateLimitMiddleware {
+            service_limit: HashMap::new(),
+            client_limit: HashMap::new(),
             sla: HashMap::new(),
             client_sla: HashMap::new(),
         }
     }
 }
 
-
 impl Middleware for RateLimitMiddleware {
-
     fn name() -> String {
         "RateLimit".into()
     }
@@ -36,9 +35,15 @@ impl Middleware for RateLimitMiddleware {
         false
     }
 
-    fn request(&mut self, task: MwPreRequest) -> Pin<Box<dyn Future<Output=()> + Send>> {
+    fn request(&mut self, task: MwPreRequest) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let now = Instant::now();
-        let MwPreRequest { context, request, service_filters: _, client_filters: _, result} = task;
+        let MwPreRequest {
+            context,
+            request,
+            service_filters: _,
+            client_filters: _,
+            result,
+        } = task;
         let mut pass = true;
         if let Some(service_limits) = self.service_limit.get_mut(&context.service_id) {
             for limit in service_limits {
@@ -56,18 +61,22 @@ impl Middleware for RateLimitMiddleware {
                 }
             }
         }
-        
-        if !pass {  // return error response
+
+        if !pass {
+            // return error response
             let _ = result.send(Err(GatewayError::RateLimited("Rate Limit".into())));
             Box::pin(async {})
         } else {
-            let response = MwPreResponse { context, next: MwNextAction::Next(request) };
+            let response = MwPreResponse {
+                context,
+                next: MwNextAction::Next(request),
+            };
             let _ = result.send(Ok(response));
             Box::pin(async {})
         }
     }
 
-    fn response(&mut self, _task: MwPostRequest) -> Pin<Box<dyn Future<Output=()> + Send>> {
+    fn response(&mut self, _task: MwPostRequest) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         panic!("never got here")
     }
 
@@ -88,14 +97,15 @@ impl Middleware for RateLimitMiddleware {
                         }
                     }
                 }
-                self.client_sla.insert(client.client_id.clone(), client.services.clone());
-            },
+                self.client_sla
+                    .insert(client.client_id.clone(), client.services.clone());
+            }
             ConfigUpdate::ClientRemove(client_id) => {
                 for (_service_id, clients) in self.client_limit.iter_mut() {
                     clients.remove(&client_id);
                 }
                 self.client_sla.remove(&client_id);
-            },
+            }
             ConfigUpdate::ServiceUpdate(service) => {
                 // setup service limit
                 let mut service_limits: Vec<TokenBucket> = Vec::new();
@@ -104,7 +114,8 @@ impl Middleware for RateLimitMiddleware {
                         service_limits.push(TokenBucket::new(f));
                     }
                 }
-                self.service_limit.insert(service.service_id.clone(), service_limits);
+                self.service_limit
+                    .insert(service.service_id.clone(), service_limits);
 
                 // setup sla limit for client update lookup
                 let mut service_sla: HashMap<String, Vec<TokenBucket>> = HashMap::new();
@@ -124,7 +135,9 @@ impl Middleware for RateLimitMiddleware {
                 for (client_id, sla_names) in self.client_sla.iter() {
                     if let Some(sla) = sla_names.get(&service.service_id) {
                         if let Some(buckets) = service_sla.get(sla) {
-                            if let Some(client_limits) = self.client_limit.get_mut(&service.service_id) {
+                            if let Some(client_limits) =
+                                self.client_limit.get_mut(&service.service_id)
+                            {
                                 client_limits.insert(client_id.clone(), buckets.clone());
                             }
                         }
@@ -132,17 +145,15 @@ impl Middleware for RateLimitMiddleware {
                 }
 
                 self.sla.insert(service.service_id.clone(), service_sla);
-            },
+            }
             ConfigUpdate::ServiceRemove(service_id) => {
                 self.service_limit.remove(&service_id);
                 self.client_limit.remove(&service_id);
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
-
 }
-
 
 #[derive(Debug, Clone)]
 pub struct TokenBucket {
@@ -154,7 +165,6 @@ pub struct TokenBucket {
 }
 
 impl TokenBucket {
-
     pub fn new(limit: &RateLimitSetting) -> Self {
         TokenBucket {
             interval: Duration::from_secs(limit.interval as u64),
@@ -180,5 +190,3 @@ impl TokenBucket {
         }
     }
 }
-
-

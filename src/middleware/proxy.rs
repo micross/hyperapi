@@ -1,16 +1,15 @@
-use hyper::{Body, Request, Response, Uri, header::HeaderValue};
-use hyper::client::HttpConnector;
+use crate::{config::Upstream, middleware::GatewayError};
 use hyper::client::Client;
+use hyper::client::HttpConnector;
+use hyper::{header::HeaderValue, Body, Request, Response, Uri};
 use hyper_rustls::HttpsConnector;
 use rustls::ClientConfig;
-use tower::Service;
-use std::pin::Pin;
-use std::task::{Poll, Context};
 use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
+use tower::Service;
 use tracing::{event, Level};
-use crate::{config::Upstream, middleware::GatewayError};
-
 
 lazy_static::lazy_static! {
 
@@ -21,7 +20,6 @@ lazy_static::lazy_static! {
     ).unwrap();
 
 }
-
 
 #[derive(Debug, Clone)]
 pub struct ProxyHandler {
@@ -34,7 +32,6 @@ pub struct ProxyHandler {
 }
 
 impl ProxyHandler {
-
     pub fn new(service_id: &str, upstream: &Upstream, timeout: u32) -> Self {
         let mut connector = HttpConnector::new();
         let timeout = Duration::from_secs(timeout as u64);
@@ -59,11 +56,11 @@ impl ProxyHandler {
             .pool_idle_timeout(timeout)
             .build::<_, Body>(tls);
 
-        ProxyHandler { 
-            service_id: String::from(service_id), 
-            client, 
+        ProxyHandler {
+            service_id: String::from(service_id),
+            client,
             timeout,
-            upstream: upstream.target.clone(), 
+            upstream: upstream.target.clone(),
             upstream_id: upstream.id.clone(),
             version: upstream.version.clone(),
         }
@@ -72,7 +69,11 @@ impl ProxyHandler {
     fn alter_request(req: Request<Body>, endpoint: &str) -> Request<Body> {
         let (mut parts, body) = req.into_parts();
         parts.version = hyper::http::Version::HTTP_11;
-        let path_and_query = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+        let path_and_query = parts
+            .uri
+            .path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/");
         let path = path_and_query.strip_prefix("/").unwrap_or("/");
         let path_left = if let Some(offset) = path.find("/") {
             let (_service_id, path_left) = path.split_at(offset);
@@ -88,11 +89,11 @@ impl ProxyHandler {
     }
 }
 
-impl Service<Request<Body>> for ProxyHandler
-{
+impl Service<Request<Body>> for ProxyHandler {
     type Response = Response<Body>;
     type Error = Box<dyn std::error::Error + Send + Sync>;
-    type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>> + Send + 'static>>;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
 
     fn poll_ready(&mut self, _c: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -104,11 +105,9 @@ impl Service<Request<Body>> for ProxyHandler
         let upstream_id = self.upstream_id.to_string();
         let version = self.version.to_string();
         let service_id = self.service_id.clone();
-        HTTP_REQ_INPROGRESS.with_label_values(&[
-            &service_id, 
-            &upstream_id,
-            &version,
-        ]).inc();
+        HTTP_REQ_INPROGRESS
+            .with_label_values(&[&service_id, &upstream_id, &version])
+            .inc();
 
         let sleep = tokio::time::sleep(self.timeout.clone());
         let fut = self.client.request(req);
@@ -122,11 +121,9 @@ impl Service<Request<Body>> for ProxyHandler
                 },
             };
 
-            HTTP_REQ_INPROGRESS.with_label_values(&[
-                &service_id,
-                &upstream_id,
-                &version,
-            ]).dec();
+            HTTP_REQ_INPROGRESS
+                .with_label_values(&[&service_id, &upstream_id, &version])
+                .dec();
 
             let mut resp = result?;
             let header = resp.headers_mut();
@@ -138,4 +135,3 @@ impl Service<Request<Body>> for ProxyHandler
         })
     }
 }
-

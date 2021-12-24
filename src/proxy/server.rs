@@ -1,15 +1,15 @@
-use tokio::sync::{mpsc, broadcast};
-use tracing::{event, Level};
-use crate::middleware::{MiddlewareHandle, Middleware, HeaderMiddleware, RateLimitMiddleware, 
-    UpstreamMiddleware, LoggerMiddleware, ACLMiddleware};
-use crate::config::{ConfigSource, ConfigUpdate};
 use super::RequestHandler;
-use crate::auth::{AuthService, AuthRequest};
+use crate::auth::{AuthRequest, AuthService};
+use crate::config::{ConfigSource, ConfigUpdate};
+use crate::middleware::{
+    ACLMiddleware, HeaderMiddleware, LoggerMiddleware, Middleware, MiddlewareHandle,
+    RateLimitMiddleware, UpstreamMiddleware,
+};
+use crate::start_middleware_macro;
 use futures::StreamExt;
 use std::sync::{Arc, Mutex};
-use crate::start_middleware_macro;
-
-
+use tokio::sync::{broadcast, mpsc};
+use tracing::{event, Level};
 
 pub struct GatewayServer {
     pub service_stack: Vec<MiddlewareHandle>,
@@ -18,11 +18,8 @@ pub struct GatewayServer {
     pub status: Arc<Mutex<u8>>,
 }
 
-
 impl GatewayServer {
-
     pub fn new(mut config: ConfigSource) -> Self {
-
         let mut stack = Vec::new();
         let (conf_tx, conf_rx) = broadcast::channel(16);
         let config_channel = conf_tx.clone();
@@ -51,7 +48,6 @@ impl GatewayServer {
                 let _ = conf_tx.send(config_update);
             }
         });
-        
         let (auth_tx, auth_rx) = mpsc::channel(16);
         tokio::spawn(async move {
             event!(Level::INFO, "Start auth worker");
@@ -67,16 +63,11 @@ impl GatewayServer {
         }
     }
 
-
     pub fn make_service(&self) -> RequestHandler {
         let lock = self.status.clone();
-        let ready = {
-            lock.lock().unwrap().clone()
-        };
+        let ready = { lock.lock().unwrap().clone() };
         let stack = self.service_stack.clone();
         let auth = self.auth_channel.clone();
         RequestHandler { stack, auth, ready }
     }
-
 }
- 

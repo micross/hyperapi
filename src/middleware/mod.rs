@@ -1,24 +1,23 @@
+mod acl;
+mod circuit_breaker;
+mod header;
+mod logger;
 mod middleware;
 mod proxy;
-mod upstream;
 mod rate_limit;
-mod header;
-mod acl;
-mod logger;
-mod circuit_breaker;
+mod upstream;
 mod weighted;
 
+pub use middleware::{
+    middleware_chain, start_middleware, GatewayError, Middleware, MiddlewareHandle,
+    MiddlewareRequest, MwNextAction, MwPostRequest, MwPostResponse, MwPreRequest, MwPreResponse,
+    RequestContext,
+};
 
-pub use middleware::{Middleware, MiddlewareRequest, MiddlewareHandle, RequestContext, 
-    MwPreRequest, MwPreResponse, MwPostRequest, MwPostResponse, MwNextAction,
-    middleware_chain, start_middleware, GatewayError};
-
-pub use upstream::UpstreamMiddleware;
-pub use rate_limit::RateLimitMiddleware;
-pub use header::HeaderMiddleware;
 pub use acl::ACLMiddleware;
+pub use header::HeaderMiddleware;
 pub use logger::LoggerMiddleware;
+pub use rate_limit::RateLimitMiddleware;
+pub use upstream::UpstreamMiddleware;
 
 pub use circuit_breaker::{CircuitBreakerConfig, CircuitBreakerService};
-
-

@@ -1,19 +1,17 @@
+use crate::config::{etcd_config, file_config, ws_config, ConfigUpdate};
 use futures::Stream;
-use tokio::sync::mpsc;
-use std::{pin::Pin, time::Duration};
-use std::task::{Context, Poll};
-use crate::config::{file_config, ws_config, ConfigUpdate};
 use pin_project::pin_project;
 use rand::Rng;
+use std::task::{Context, Poll};
+use std::{pin::Pin, time::Duration};
+use tokio::sync::mpsc;
 use tracing::{event, Level};
-
 
 #[pin_project]
 pub struct ConfigSource {
     #[pin]
-    reciever: mpsc::Receiver<ConfigUpdate>
+    reciever: mpsc::Receiver<ConfigUpdate>,
 }
-
 
 impl ConfigSource {
     pub fn new(source: String) -> Self {
@@ -27,19 +25,27 @@ impl ConfigSource {
                 loop {
                     ws_config::watch_config(source.clone(), tx.clone()).await;
                     let wait_time = rand::thread_rng().gen_range(10..100);
-                    event!(Level::WARN, "ws connection lost, sleep {}s to reconnect", &wait_time);
+                    event!(
+                        Level::WARN,
+                        "ws connection lost, sleep {}s to reconnect",
+                        &wait_time
+                    );
                     tokio::time::sleep(Duration::from_secs(wait_time)).await;
                 }
             });
-        // } else if source.starts_with("etcd://") {
-        //     tokio::spawn(async move {
-        //         loop {
-        //             etcd_config::watch_config(source.clone(), tx.clone()).await;
-        //             let wait_time = rand::thread_rng().gen_range(10..100);
-        //             event!(Level::WARN, "etcd connection lost, sleep {}s to reconnect", &wait_time);
-        //             tokio::time::sleep(Duration::from_secs(wait_time)).await;
-        //         }
-        //     });
+        } else if source.starts_with("etcd://") {
+            tokio::spawn(async move {
+                loop {
+                    etcd_config::watch_config(source.clone(), tx.clone()).await;
+                    let wait_time = rand::thread_rng().gen_range(10..100);
+                    event!(
+                        Level::WARN,
+                        "etcd connection lost, sleep {}s to reconnect",
+                        &wait_time
+                    );
+                    tokio::time::sleep(Duration::from_secs(wait_time)).await;
+                }
+            });
         } else {
             // try read as config file
             tokio::spawn(async move {
@@ -50,7 +56,6 @@ impl ConfigSource {
     }
 }
 
-
 impl Stream for ConfigSource {
     type Item = ConfigUpdate;
 
@@ -59,4 +64,3 @@ impl Stream for ConfigSource {
         this.reciever.poll_recv(cx)
     }
 }
-

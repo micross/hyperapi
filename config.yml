@@ -1,0 +1,35 @@
+services:
+  - service_id: test/mws
+    path: /test_service_name
+    protocol: http
+    auth:
+      type: None
+    timeout: 3
+    load_balance: "load"
+    upstreams:
+      - id: "1"
+        timeout: 3
+        target: "http://127.0.0.1:8081/"
+        max_conn: 1000
+        weight: 100
+        error_threshold: 10
+        error_reset: 60
+        retry_delay: 10
+        version: "1"
+    filters: []
+    sla:
+      - name: Default
+        filters:
+          - type: RateLimit
+            setting:
+              interval: 10
+              limit: 100000
+              burst: 100000
+
+clients:
+- app_key: 9cf3319cbd254202cf882a79a755ba6e
+  client_id: test/client
+  ip_whitelist: []
+  pub_key: 'MFkwEwYHKoZIzj0CAQYIKoZI'
+  services:
+    test/mws: Default

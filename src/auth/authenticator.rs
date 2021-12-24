@@ -1,12 +1,11 @@
-use std::collections::HashMap;
+use crate::config::{AuthSetting, ConfigUpdate, FilterSetting};
 use hyper::http::request::Parts;
-use tokio::sync::oneshot;
-use crate::config::{ConfigUpdate, FilterSetting, AuthSetting};
+use std::collections::HashMap;
 use thiserror::Error;
-
+use tokio::sync::oneshot;
 
 #[derive(Error, Debug, Clone)]
-pub enum GatewayAuthError { 
+pub enum GatewayAuthError {
     #[error("Unknown Service")]
     UnknownService,
 
@@ -22,10 +21,12 @@ pub enum GatewayAuthError {
     #[error("Auth token not found")]
     TokenNotFound,
 
+    #[error("Invalid jwt issuer")]
+    InvalidIssuer,
+
     #[error("Unknown auth error")]
     Unknown,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct AuthResponse {
@@ -36,26 +37,28 @@ pub struct AuthResponse {
     pub client_filters: Vec<FilterSetting>,
 }
 
-
 pub struct AuthRequest {
     pub head: Parts,
     pub result: oneshot::Sender<Result<(Parts, AuthResponse), GatewayAuthError>>,
 }
 
 impl AuthRequest {
-    pub fn into_parts(self) -> (Parts, oneshot::Sender<Result<(Parts, AuthResponse), GatewayAuthError>>) {
+    pub fn into_parts(
+        self,
+    ) -> (
+        Parts,
+        oneshot::Sender<Result<(Parts, AuthResponse), GatewayAuthError>>,
+    ) {
         (self.head, self.result)
     }
 }
-
 
 pub struct ServiceAuthInfo {
     pub service_id: String,
     pub auth: AuthSetting,
     pub filters: Vec<FilterSetting>,
-    pub slas: HashMap<String, Vec<FilterSetting>>
+    pub slas: HashMap<String, Vec<FilterSetting>>,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct AuthResult {
@@ -63,11 +66,12 @@ pub struct AuthResult {
     pub sla: String,
 }
 
-
 pub trait AuthProvider {
-
     fn update_config(&mut self, update: ConfigUpdate);
 
-    fn identify_client(&self, client: Parts, service_id: &str) -> Result<(Parts, AuthResult), GatewayAuthError>;
+    fn identify_client(
+        &self,
+        client: Parts,
+        service_id: &str,
+    ) -> Result<(Parts, AuthResult), GatewayAuthError>;
 }
-

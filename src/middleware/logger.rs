@@ -1,9 +1,8 @@
-use hyper::http::HeaderValue;
-use std::{pin::Pin, time::SystemTime};
-use std::future::Future;
-use crate::middleware::{MwPostRequest, MwPreRequest, MwPostResponse, Middleware};
 use crate::config::ConfigUpdate;
-
+use crate::middleware::{Middleware, MwPostRequest, MwPostResponse, MwPreRequest};
+use hyper::http::HeaderValue;
+use std::future::Future;
+use std::{pin::Pin, time::SystemTime};
 
 lazy_static::lazy_static! {
     static ref HTTP_COUNTER: prometheus::IntCounterVec = prometheus::register_int_counter_vec!(
@@ -20,7 +19,6 @@ lazy_static::lazy_static! {
     ).unwrap();
 }
 
-
 #[derive(Debug)]
 pub struct LoggerMiddleware {}
 
@@ -29,7 +27,6 @@ impl Default for LoggerMiddleware {
         LoggerMiddleware {}
     }
 }
-
 
 impl Middleware for LoggerMiddleware {
     fn name() -> String {
@@ -44,43 +41,58 @@ impl Middleware for LoggerMiddleware {
         false
     }
 
-    fn request(&mut self, _task: MwPreRequest) -> Pin<Box<dyn Future<Output=()> + Send>> {
+    fn request(&mut self, _task: MwPreRequest) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         panic!("never got here");
     }
 
-    fn response(&mut self, task: MwPostRequest) -> Pin<Box<dyn Future<Output=()> + Send>> {
-        let MwPostRequest {context, response, service_filters: _, client_filters: _, result} = task;
+    fn response(&mut self, task: MwPostRequest) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let MwPostRequest {
+            context,
+            response,
+            service_filters: _,
+            client_filters: _,
+            result,
+        } = task;
         let status = response.status().as_u16().to_string();
         let empty_value = HeaderValue::from_static("");
-        let upstream = response.headers().get("X-UPSTREAM-ID").unwrap_or(&empty_value).to_str().unwrap();
-        let version = response.headers().get("X-UPSTREAM-VERSION").unwrap_or(&empty_value).to_str().unwrap();
-        
-        let elapsed = SystemTime::now().duration_since(context.start_time).unwrap();
-        HTTP_REQ_DURATION_HIST.with_label_values(&[
-            &context.service_id,
-            &context.client_id,
-            upstream,
-            version,
-        ]).observe(elapsed.as_secs_f64());
+        let upstream = response
+            .headers()
+            .get("X-UPSTREAM-ID")
+            .unwrap_or(&empty_value)
+            .to_str()
+            .unwrap();
+        let version = response
+            .headers()
+            .get("X-UPSTREAM-VERSION")
+            .unwrap_or(&empty_value)
+            .to_str()
+            .unwrap();
 
+        let elapsed = SystemTime::now()
+            .duration_since(context.start_time)
+            .unwrap();
+        HTTP_REQ_DURATION_HIST
+            .with_label_values(&[&context.service_id, &context.client_id, upstream, version])
+            .observe(elapsed.as_secs_f64());
         let path = context.api_path.clone();
-        HTTP_COUNTER.with_label_values(&[
-            &context.service_id, 
-            &context.client_id, 
-            upstream, 
-            version,
-            &status, 
-            &path,
-        ]).inc_by(1);
+        HTTP_COUNTER
+            .with_label_values(&[
+                &context.service_id,
+                &context.client_id,
+                upstream,
+                version,
+                &status,
+                &path,
+            ])
+            .inc_by(1);
 
-        let response = MwPostResponse {context: context, response: response };
+        let response = MwPostResponse {
+            context: context,
+            response: response,
+        };
         let _ = result.send(Ok(response));
         Box::pin(async {})
     }
 
     fn config_update(&mut self, _update: ConfigUpdate) {}
-
 }
-
-
-

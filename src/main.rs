@@ -1,17 +1,16 @@
-use tracing::{event, Level};
 use clap::{App, Arg};
-use hyper::Server;
-use hyper::service::make_service_fn;
-use std::convert::Infallible;
-use hyperapi::config::ConfigSource;
-use hyperapi::proxy::{GatewayServer, TlsConfigBuilder, TlsAcceptor};
-use std::sync::{Arc, Mutex};
-use tracing_log::LogTracer;
-use tracing_subscriber::{Registry, EnvFilter};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_bunyan_formatter::{JsonStorageLayer, BunyanFormattingLayer};
 use hyper::server::conn::AddrIncoming;
-
+use hyper::service::make_service_fn;
+use hyper::Server;
+use hyperapi::config::ConfigSource;
+use hyperapi::proxy::{GatewayServer, TlsAcceptor, TlsConfigBuilder};
+use std::convert::Infallible;
+use std::sync::{Arc, Mutex};
+use tracing::{event, Level};
+use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
+use tracing_log::LogTracer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{filter::EnvFilter, Registry};
 
 #[tokio::main]
 async fn main() {
@@ -26,26 +25,41 @@ async fn main() {
         .with(bunyan_formatting_layer);
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
-
-    let matches = App::new("juapi.rs")
-        .version("0.1")
+    let matches = App::new("hyperapi")
+        .version("0.2.4")
         .author("Leric Zhang <leric.zhang@gmail.com>")
         .about("The gateway to API")
-        .arg(Arg::with_name("config").required(true).takes_value(true)
-            .short("c").long("config")
-           .value_name("FILE")
-           .help("Set config file path"))
-        .arg(Arg::with_name("listen").required(true).takes_value(true)
-           .short("L").long("listen")
-           .help("Listening port"))
-        .arg(Arg::with_name("cert_file").takes_value(true)
-            .long("cert_file")
-            .default_value("")
-            .help("HTTPS cert file"))
-        .arg(Arg::with_name("key_file").takes_value(true)
-            .long("key_file")
-            .default_value("")
-            .help("HTTPS private key file"))
+        .arg(
+            Arg::new("config")
+                .required(true)
+                .takes_value(true)
+                .short('c')
+                .long("config")
+                .value_name("FILE")
+                .help("Set config file path"),
+        )
+        .arg(
+            Arg::new("listen")
+                .required(true)
+                .takes_value(true)
+                .short('L')
+                .long("listen")
+                .help("Listening port"),
+        )
+        .arg(
+            Arg::new("cert_file")
+                .takes_value(true)
+                .long("cert_file")
+                .default_value("")
+                .help("HTTPS cert file"),
+        )
+        .arg(
+            Arg::new("key_file")
+                .takes_value(true)
+                .long("key_file")
+                .default_value("")
+                .help("HTTPS private key file"),
+        )
         .get_matches();
     let config = matches.value_of("config").unwrap();
     let listen = matches.value_of("listen").unwrap();
@@ -66,9 +80,7 @@ async fn main() {
                 let lock = server.lock().expect("GatewayServer status error");
                 lock.make_service()
             };
-            async move {
-                Ok::<_, Infallible>(handler)
-            }
+            async move { Ok::<_, Infallible>(handler) }
         });
         let config = TlsConfigBuilder::new()
             .key_path(key_file)
@@ -76,8 +88,7 @@ async fn main() {
             .build()
             .expect("Fail to load TLS certificates");
         let acceptor = TlsAcceptor::new(config, incoming);
-        let server = Server::builder(acceptor)
-            .serve(make_svc);
+        let server = Server::builder(acceptor).serve(make_svc);
         server.await.expect("Server failed to start");
     } else {
         event!(Level::INFO, "Starting http gateway edge server");
@@ -86,12 +97,9 @@ async fn main() {
                 let lock = server.lock().expect("GatewayServer status error");
                 lock.make_service()
             };
-            async move {
-                Ok::<_, Infallible>(handler)
-            }
+            async move { Ok::<_, Infallible>(handler) }
         });
-        let server = Server::builder(incoming)
-            .serve(make_svc);
+        let server = Server::builder(incoming).serve(make_svc);
         server.await.expect("Server failed to start");
     }
 }

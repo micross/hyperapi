@@ -1,15 +1,23 @@
+use crate::config::{ClientInfo, ConfigUpdate, ServiceInfo};
+use etcd_client::{Client, ConnectOptions, EventType, GetOptions, WatchOptions};
 use tokio::sync::mpsc;
 use tracing::{event, Level};
-use crate::config::{ConfigUpdate, ServiceInfo, ClientInfo};
-use etcd_client::{Client, EventType, GetOptions, WatchOptions};
 
-
-// e.g. etcd://<env-ns>.<env-name>:<access-token>@<etcd_endpoint>/juapi/<env-ns>/<env-name>
+// e.g. etcd://<env-ns>.<env-name>:<access-token>@<etcd_endpoint>/juapi/<env-ns>.<env-name>
 pub async fn watch_config(source: String, sender: mpsc::Sender<ConfigUpdate>) {
     let url = url::Url::parse(&source).unwrap();
-    let endpoints = vec![url.host_str().unwrap()];
+    let host_str = url.host_str().unwrap_or("127.0.0.1");
+    let port = url.port().unwrap_or(2379);
+    let endpoints = vec![format!("{}:{}", host_str, port)];
     let conf_path = url.path();
-    let mut client = Client::connect(endpoints, None).await.unwrap();
+    let mut client = if url.has_authority() {
+        let username = url.username();
+        let password = url.password().unwrap_or_default();
+        let options = Some(ConnectOptions::new().with_user(username, password));
+        Client::connect(endpoints, options).await.unwrap()
+    } else {
+        Client::connect(endpoints, None).await.unwrap()
+    };
 
     let get_option = GetOptions::new().with_prefix();
     if let Ok(resp) = client.get(conf_path, Some(get_option)).await {
@@ -25,8 +33,10 @@ pub async fn watch_config(source: String, sender: mpsc::Sender<ConfigUpdate>) {
 
         // watch further config changes
         let revision = resp.header().unwrap().revision();
-        let watch_option = WatchOptions::new().with_prefix().with_start_revision(revision);
-        let (_watcher, mut stream ) = client.watch(conf_path, Some(watch_option)).await.unwrap();
+        let watch_option = WatchOptions::new()
+            .with_prefix()
+            .with_start_revision(revision);
+        let (_watcher, mut stream) = client.watch(conf_path, Some(watch_option)).await.unwrap();
         while let Some(resp) = stream.message().await.unwrap() {
             if resp.canceled() {
                 event!(Level::INFO, "watch canceled!");
@@ -40,7 +50,7 @@ pub async fn watch_config(source: String, sender: mpsc::Sender<ConfigUpdate>) {
                         } else {
                             None
                         }
-                    },
+                    }
                     EventType::Delete => {
                         if let Some(kv) = event.kv() {
                             extract_event(kv.key_str().unwrap(), kv.value_str().unwrap(), true)
@@ -58,7 +68,6 @@ pub async fn watch_config(source: String, sender: mpsc::Sender<ConfigUpdate>) {
         event!(Level::ERROR, "Fail to connect etcd");
     }
 }
-
 
 fn extract_event(key: &str, val: &str, is_delete: bool) -> Option<ConfigUpdate> {
     // key schema:  /juapi/<env-ns>.<env-name>/<services|clients>/<entity-ns>.<entity-name>
